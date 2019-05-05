@@ -372,9 +372,16 @@ func (cm *ChatMonitor) Stats() string {
 }
 
 func (cm *ChatMonitor) Cheer(message twitch.PrivateMessage) string {
+
 	arg := GetArgument(0, message)
 	if arg == nil {
-		return "To cheer, type !cheer <amount>"
+		cmd := GetCommand(message)
+		if strings.HasPrefix(cmd, "cheer") {
+			part := strings.TrimPrefix(cmd, "cheer")
+			arg = &part
+		} else {
+			return "To cheer, type !cheer <amount>, or Cheer100"
+		}
 	}
 	amount, err := strconv.Atoi(*arg)
 	if err != nil {
@@ -396,17 +403,28 @@ func (cm *ChatMonitor) Cheer(message twitch.PrivateMessage) string {
 }
 
 func (cm *ChatMonitor) NewMessage(message twitch.PrivateMessage) {
-	switch GetCommand(message) {
+	cmd := GetCommand(message)
+	switch cmd {
 	case "giftsub":
 		cm.Say(cm.GiftSub(message))
+		return
 	case "sub":
 		cm.Say(cm.Subscribe(message))
+		return
 	case "me":
 		cm.Say(cm.AboutMe(message))
+		return
 	case "cheer":
 		cm.Say(cm.Cheer(message))
+		return
 	case "stats":
 		cm.Say(cm.Stats())
+		return
+	}
+
+	if strings.HasPrefix(cmd, "cheer") {
+		cm.Say(cm.Cheer(message))
+		return
 	}
 	fmt.Println(message.User.Name, ":", message.Message)
 }
