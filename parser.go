@@ -94,7 +94,7 @@ func (cm *ChatMonitor) AboutMe(message twitch.PrivateMessage) string {
 	if !subbed {
 		parts = append(parts, "are not currently subscribed")
 	} else {
-		parts = append(parts, fmt.Sprintf("have been subscribed for %d months, most recently %s ago", info.MonthsSubbed, time.Since(info.LastSub).Round(time.Hour)))
+		parts = append(parts, fmt.Sprintf("have been subscribed for %d months, most recently %s ago", info.MonthsSubbed, time.Since(info.LastSub)))
 	}
 
 	if info.GiftsGiven == 0 {
