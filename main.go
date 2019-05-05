@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -15,6 +16,7 @@ import (
 const CREATE_CHEERS_SQL = `
 	CREATE TABLE cheers (
 		created_at integer,
+		amount integer,
 		username text
 	)
 `
@@ -33,6 +35,17 @@ type UserInfo struct {
 	SubbedFrom   *string
 	MonthsSubbed int
 	GiftsGiven   int
+	BitsCheered  int
+}
+
+type ChannelInfo struct {
+	ActiveSubs  int
+	TotalGifts  int
+	TotalCheers int
+}
+
+func (c ChannelInfo) Treat() string {
+	return treats[c.TotalCheers%len(treats)]
 }
 
 type LoyaltyTracker struct {
@@ -76,10 +89,12 @@ func (lt *LoyaltyTracker) Subscribe(user string) error {
 		if err != sql.ErrNoRows {
 			return err
 		}
+	} else {
+		if tSub > tNow-60*60*24*30 {
+			return fmt.Errorf("user is already subscribed")
+		}
 	}
-	if tSub > tNow-60*60*24*30 {
-		return fmt.Errorf("user is already subscribed")
-	}
+
 	{
 		_, err := tx.Exec("INSERT INTO subs ( created_at, username, tier ) VALUES (?,?,?)",
 			tNow, user, 1)
@@ -95,11 +110,64 @@ func (lt *LoyaltyTracker) UserInfo(user string) (ui UserInfo) {
 	ui.GiftsGiven = lt.GiftSubs(user)
 	ui.SubbedFrom = lt.Giftee(user)
 	ui.LastSub = lt.LastSub(user)
+	ui.BitsCheered = lt.Cheers(user)
 	return ui
+}
+
+func (lt *LoyaltyTracker) ChannelInfo() (ci ChannelInfo) {
+	ci.TotalCheers = lt.TotalCheers()
+	ci.TotalGifts = lt.TotalGifts()
+	ci.ActiveSubs = lt.ActiveSubs()
+	return ci
 }
 
 func (lt *LoyaltyTracker) Months(user string) int {
 	row := lt.db.QueryRow("SELECT COUNT(*) FROM subs WHERE username = ?", user)
+	count := 0
+	err := row.Scan(&count)
+	if err != nil {
+		log.Println(err.Error())
+		return 0
+	}
+	return count
+}
+
+func (lt *LoyaltyTracker) Cheers(user string) int {
+	row := lt.db.QueryRow("SELECT SUM(amount) FROM cheers WHERE username = ?", user)
+	count := 0
+	err := row.Scan(&count)
+	if err != nil {
+		log.Println(err.Error())
+		return 0
+	}
+	return count
+}
+
+func (lt *LoyaltyTracker) TotalCheers() int {
+	row := lt.db.QueryRow("SELECT SUM(amount) FROM cheers")
+	count := 0
+	err := row.Scan(&count)
+	if err != nil {
+		log.Println(err.Error())
+		return 0
+	}
+	return count
+}
+
+func (lt *LoyaltyTracker) TotalGifts() int {
+	row := lt.db.QueryRow("SELECT COUNT(*) FROM subs WHERE giftee IS NOT NULL")
+	count := 0
+	err := row.Scan(&count)
+	if err != nil {
+		log.Println(err.Error())
+		return 0
+	}
+	return count
+}
+
+func (lt *LoyaltyTracker) ActiveSubs() int {
+	tNow := time.Now().Unix() - 60*60*24*30
+	row := lt.db.QueryRow("SELECT COUNT(*) FROM subs WHERE created_at > ?", tNow)
 	count := 0
 	err := row.Scan(&count)
 	if err != nil {
@@ -173,7 +241,9 @@ func (lt *LoyaltyTracker) Gift(user, from string) error {
 }
 
 func (lt *LoyaltyTracker) Cheer(user string, amount int) error {
-	return nil
+	tNow := int(time.Now().Unix())
+	_, err := lt.db.Exec("INSERT INTO cheers (created_at, username, amount) VALUES (?,?,?)", tNow, user, amount)
+	return err
 }
 
 type LoyaltyRepo interface {
@@ -181,6 +251,7 @@ type LoyaltyRepo interface {
 	Gift(user string, from string) error
 	Cheer(user string, amount int) error
 	UserInfo(user string) UserInfo
+	ChannelInfo() ChannelInfo
 }
 
 type ChatMonitor struct {
@@ -246,21 +317,21 @@ func (cm *ChatMonitor) Subscribe(message twitch.PrivateMessage) string {
 		log.Println("err sub:", err.Error())
 		return fmt.Sprintf("%s, your sub failed because `%s`", message.User.DisplayName, err.Error())
 	}
-	return fmt.Sprintf("thank you %s for the sub!", message.User.DisplayName)
+	return fmt.Sprintf("Thank you %s for the sub! You can now use our emotes: SeemsGood VoHiYo 4Head GivePLZ Kappa MingLee TableHere #IfYouWant!", message.User.DisplayName)
 }
 
 func (cm *ChatMonitor) AboutMe(message twitch.PrivateMessage) string {
 	info := cm.LoyaltyRepo.UserInfo(message.User.Name)
 	subbed := time.Since(info.LastSub) < 1*time.Hour*24*30
 	parts := make([]string, 0)
-	if subbed {
+	if !subbed {
 		parts = append(parts, "are not currently subscribed")
 	} else {
-		parts = append(parts, fmt.Sprintf("have been subscribed for %d months, most recently at %s", info.MonthsSubbed, info.LastSub))
+		parts = append(parts, fmt.Sprintf("have been subscribed for %d months, most recently %s ago", info.MonthsSubbed, time.Since(info.LastSub).Round(time.Hour)))
 	}
 
 	if info.GiftsGiven == 0 {
-		parts = append(parts, "have not given any gift subs")
+		parts = append(parts, "have given 0 gift subs to the community")
 	} else {
 		parts = append(parts, fmt.Sprintf("have given %d gift subs", info.GiftsGiven))
 	}
@@ -269,7 +340,13 @@ func (cm *ChatMonitor) AboutMe(message twitch.PrivateMessage) string {
 		parts = append(parts, fmt.Sprintf("last received a gift sub from %s", *info.SubbedFrom))
 	}
 
-	return fmt.Sprintf("%s, you: %s!", message.User.DisplayName, strings.Join(parts, "; "))
+	if info.BitsCheered == 0 {
+		parts = append(parts, "have not cheered")
+	} else {
+		parts = append(parts, fmt.Sprintf("have cheered %d bits", info.BitsCheered))
+	}
+
+	return fmt.Sprintf("%s, you: %s.", message.User.DisplayName, strings.Join(parts, "; "))
 }
 
 func (cm *ChatMonitor) GiftSub(message twitch.PrivateMessage) string {
@@ -282,7 +359,30 @@ func (cm *ChatMonitor) GiftSub(message twitch.PrivateMessage) string {
 		return fmt.Sprintf("%s, your giftsub failed because `%s`", message.User.DisplayName, err.Error())
 	}
 	count := cm.LoyaltyRepo.UserInfo(message.User.Name).GiftsGiven
-	return fmt.Sprintf("Thank you %s for the gift sub to %s! You have given %d gift subs.", message.User.DisplayName, *arg, count)
+	return fmt.Sprintf("Thank you %s for the gift sub to %s! They can now use SeemsGood VoHiYo 4Head GivePLZ Kappa MingLee TableHere! You have given %d gift subs to this channel.", message.User.DisplayName, *arg, count)
+}
+
+func (cm *ChatMonitor) Stats() string {
+	ci := cm.ChannelInfo()
+	return fmt.Sprintf("There are currently %d active subscribers! The community has given %d gift subs and cheered %d bits!", ci.ActiveSubs, ci.TotalGifts, ci.TotalCheers)
+}
+
+func (cm *ChatMonitor) Cheer(message twitch.PrivateMessage) string {
+	arg := GetArgument(0, message)
+	if arg == nil {
+		return "To cheer, type !cheer <amount>"
+	}
+	amount, err := strconv.Atoi(*arg)
+	if err != nil {
+		return "%s, you must cheer a number."
+	}
+	if err := cm.LoyaltyRepo.Cheer(message.User.Name, amount); err != nil {
+		log.Println("err cheering:", err.Error())
+		return fmt.Sprintf("%s, your cheer failed because `%s`", message.User.DisplayName, err.Error())
+	}
+	userInfo := cm.UserInfo(message.User.Name)
+	info := cm.ChannelInfo()
+	return fmt.Sprintf("%s, thanks for cheering %d bits, for a total of %d! The community has given %d bits, enough for a new %s!", message.User.DisplayName, amount, userInfo.BitsCheered, info.TotalCheers, info.Treat())
 }
 
 func (cm *ChatMonitor) NewMessage(message twitch.PrivateMessage) {
@@ -293,6 +393,10 @@ func (cm *ChatMonitor) NewMessage(message twitch.PrivateMessage) {
 		cm.Say(cm.Subscribe(message))
 	case "me":
 		cm.Say(cm.AboutMe(message))
+	case "cheer":
+		cm.Say(cm.Cheer(message))
+	case "stats":
+		cm.Say(cm.Stats())
 	}
 	fmt.Println(message.User.Name, ":", message.Message)
 }
@@ -318,3 +422,5 @@ func GetArgument(n int, message twitch.PrivateMessage) *string {
 	res := strings.TrimPrefix(strings.ToLower(parts[n+1]), "@")
 	return &res
 }
+
+var treats = [...]string{"teddy bear", "hot choccy", "blanket", "desk plant", "wii u", "copy of mario maker", "rune scim", "egg salad", "buzzy beetle", "mazarati", "golden kappa", "time machine"}
