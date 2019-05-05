@@ -280,7 +280,7 @@ func (cm *ChatMonitor) SaySlowly() {
 		}
 		lastMessage = m
 		cm.Client.Say(cm.channel, m)
-		time.Sleep(2 * time.Second)
+		time.Sleep(4 * time.Second)
 	}
 }
 
