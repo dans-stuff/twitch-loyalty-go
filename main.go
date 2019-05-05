@@ -410,38 +410,63 @@ func (cm *ChatMonitor) Stats() string {
 	return fmt.Sprintf("There are currently %d active subscribers! The community has given %d gift subs and cheered %d bits!", ci.ActiveSubs, ci.TotalGifts, ci.TotalCheers)
 }
 
-func (cm *ChatMonitor) Cheer(message twitch.PrivateMessage) string {
+var prefixes = []string{"BleedPurple", "Cheer", "PogChamp", "ShowLove", "Pride", "HeyGuys", "FrankerZ",
+	"SeemsGood", "Party", "Kappa", "DansGame", "EleGiggle", "TriHard", "Kreygasm", "4Head",
+	"SwiftRage", "NotLikeThis", "FailFish", "VoHiYo", "PJSalt", "MrDestructoid", "bday",
+	"RIPCheer", "Shamrock"}
 
-	arg := GetArgument(0, message)
-	if arg == nil {
-		cmd := GetCommand(message)
-		if strings.HasPrefix(cmd, "cheer") {
-			part := strings.TrimPrefix(cmd, "cheer")
-			arg = &part
-		} else {
-			return "To cheer, type !cheer <amount>, or Cheer100"
+func (cm *ChatMonitor) CheckCheers(message twitch.PrivateMessage) string {
+	total := 0
+	for _, p := range strings.Split(message.Message, " ") {
+		for _, prefix := range prefixes {
+			if strings.HasPrefix(p, prefix) {
+				amtStr := strings.TrimPrefix(p, prefix)
+				if amt, err := strconv.Atoi(amtStr); err != nil {
+					total += amt
+				}
+			}
 		}
 	}
+	if total > 0 {
+		return cm.doCheer(message.User, total)
+	}
+	return ""
+}
+
+func (cm *ChatMonitor) Cheer(message twitch.PrivateMessage) string {
+	arg := GetArgument(0, message)
+	if arg == nil {
+		return "To cheer, type !cheer <amount>, or Cheer100"
+	}
+
 	amount, err := strconv.Atoi(*arg)
 	if err != nil {
 		return fmt.Sprintf("%s, you must cheer a number.", message.User.DisplayName)
 	}
+	return cm.doCheer(message.User, amount)
+}
+
+func (cm *ChatMonitor) doCheer(t twitch.User, amount int) string {
 	if amount < 0 {
-		return fmt.Sprintf("%s, stop trying to steal my bits! :(", message.User.DisplayName)
+		return fmt.Sprintf("%s, stop trying to steal my bits! :(", t.DisplayName)
 	}
 	if amount > 1000000 {
-		return fmt.Sprintf("%s, I can't allow you to be so generous! GivePLZ", message.User.DisplayName)
+		return fmt.Sprintf("%s, I can't allow you to be so generous! GivePLZ", t.DisplayName)
 	}
-	if err := cm.LoyaltyRepo.Cheer(message.User.Name, amount); err != nil {
+	if err := cm.LoyaltyRepo.Cheer(t.Name, amount); err != nil {
 		log.Println("err cheering:", err.Error())
-		return fmt.Sprintf("%s, your cheer failed because `%s`", message.User.DisplayName, err.Error())
+		return fmt.Sprintf("%s, your cheer failed because `%s`", t.DisplayName, err.Error())
 	}
-	userInfo := cm.UserInfo(message.User.Name)
+	userInfo := cm.UserInfo(t.Name)
 	info := cm.ChannelInfo()
-	return fmt.Sprintf("%s, thanks for cheering %d bits, for a total of %d! The community has given %d bits, enough for a new %s!", message.User.DisplayName, amount, userInfo.BitsCheered, info.TotalCheers, info.Treat())
+	return fmt.Sprintf("%s, thanks for cheering %d bits, for a total of %d! The community has given %d bits, enough for a new %s!", t.DisplayName, amount, userInfo.BitsCheered, info.TotalCheers, info.Treat())
 }
 
 func (cm *ChatMonitor) NewMessage(message twitch.PrivateMessage) {
+	if m := cm.CheckCheers(message); m != "" {
+		cm.Say(m)
+		return
+	}
 	cmd := GetCommand(message)
 	switch cmd {
 	case "giftsub":
@@ -458,11 +483,6 @@ func (cm *ChatMonitor) NewMessage(message twitch.PrivateMessage) {
 		return
 	case "stats":
 		cm.Say(cm.Stats())
-		return
-	}
-
-	if strings.HasPrefix(cmd, "cheer") {
-		cm.Say(cm.Cheer(message))
 		return
 	}
 	fmt.Println(message.User.Name, ":", message.Message)
