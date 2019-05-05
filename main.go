@@ -53,7 +53,11 @@ type LoyaltyTracker struct {
 }
 
 func NewLoyaltyTracker() *LoyaltyTracker {
-	db, err := sql.Open("sqlite3", "./sql.db")
+	home, err := os.UserHomeDir()
+	if err != nil {
+		log.Fatal(err)
+	}
+	db, err := sql.Open("sqlite3", home+"/sql.db")
 	if err != nil {
 		log.Fatal(err)
 	}

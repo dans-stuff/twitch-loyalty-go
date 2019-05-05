@@ -13,3 +13,4 @@
 
 # Database
 *.db
+vendor/*
