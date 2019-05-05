@@ -378,7 +378,10 @@ func (cm *ChatMonitor) Cheer(message twitch.PrivateMessage) string {
 	}
 	amount, err := strconv.Atoi(*arg)
 	if err != nil {
-		return "%s, you must cheer a number."
+		return fmt.Sprintf("%s, you must cheer a number.", message.User.DisplayName)
+	}
+	if amount < 0 {
+		return fmt.Sprintf("%s, stop trying to steal my bits! :(", message.User.DisplayName)
 	}
 	if err := cm.LoyaltyRepo.Cheer(message.User.Name, amount); err != nil {
 		log.Println("err cheering:", err.Error())
