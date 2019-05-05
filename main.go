@@ -5,18 +5,27 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
+	"time"
 
 	twitch "github.com/gempir/go-twitch-irc"
 	_ "github.com/mattn/go-sqlite3"
 )
 
-const CREATE_SQL = `
-	CREATE TABLE users (
-		username text, channel text,
-		last_sub integer, total_subs integer,
-		gift_count integer, sub_count integer,
-		cheer_count integer
+const CREATE_CHEERS_SQL = `
+	CREATE TABLE cheers (
+		created_at integer,
+		username text
 	)
+`
+
+const CREATE_SUBS_SQL = `
+	CREATE TABLE subs (
+		created_at integer,
+		username text,
+		giftee text,
+		tier integer
+	);
 `
 
 type LoyaltyTracker struct {
@@ -30,7 +39,14 @@ func NewLoyaltyTracker() *LoyaltyTracker {
 	}
 
 	{
-		_, err := db.Exec(CREATE_SQL)
+		_, err := db.Exec(CREATE_CHEERS_SQL)
+		if err != nil {
+			log.Println("error creating table:", err.Error())
+		}
+	}
+
+	{
+		_, err := db.Exec(CREATE_SUBS_SQL)
 		if err != nil {
 			log.Println("error creating table:", err.Error())
 		}
@@ -41,12 +57,63 @@ func NewLoyaltyTracker() *LoyaltyTracker {
 	return lt
 }
 
+func (lt *LoyaltyTracker) Subscribe(user string) error {
+	tx, err := lt.db.Begin()
+	if err != nil {
+		return err
+	}
+
+	tNow := int(time.Now().Unix())
+	row := tx.QueryRow("SELECT created_at FROM subs WHERE username = ?", user)
+	tSub := 0
+	if err := row.Scan(&tSub); err != nil {
+		if err != sql.ErrNoRows {
+			return err
+		}
+	}
+	if tSub > tNow-60*60*24*30 {
+		return fmt.Errorf("you are already subscribed this month!")
+	}
+	{
+		_, err := tx.Exec("INSERT INTO subs ( created_at, username, tier ) VALUES (?,?,?)",
+			tNow, user, 1)
+		if err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+func (lt *LoyaltyTracker) Months(user string) int {
+	row := lt.db.QueryRow("SELECT COUNT(*) FROM subs WHERE username = ?", user)
+	count := 0
+	err := row.Scan(&count)
+	if err != nil {
+		log.Println(err.Error())
+		return 0
+	}
+	return count
+}
+
+func (lt *LoyaltyTracker) Gift(user, from string) error {
+	return nil
+}
+
+func (lt *LoyaltyTracker) Cheer(user string, amount int) error {
+	return nil
+}
+
 type LoyaltyRepo interface {
+	Subscribe(user string) error
+	Months(user string) int
+	Gift(user string, from string) error
+	Cheer(user string, amount int) error
 }
 
 type ChatMonitor struct {
 	LoyaltyRepo
 	*twitch.Client
+	channel string
 }
 
 func NewChatMonitor(lp LoyaltyRepo) *ChatMonitor {
@@ -74,13 +141,41 @@ func (cm *ChatMonitor) Monitor() error {
 	if len(channel) == 0 {
 		return fmt.Errorf("error, USER_CHANNEL variable empty")
 	}
+	cm.channel = channel
 	cm.Join(channel)
 	cm.OnPrivateMessage(cm.NewMessage)
 
 	return client.Connect()
 }
 
+func (cm *ChatMonitor) Subscribe(message twitch.PrivateMessage) string {
+	if err := cm.LoyaltyRepo.Subscribe(message.User.Name); err != nil {
+		return fmt.Sprintf("sub failed: %s", err.Error())
+	}
+	return fmt.Sprintf("thank you %s for the sub!", message.User.DisplayName)
+}
+
+func (cm *ChatMonitor) AboutMe(message twitch.PrivateMessage) string {
+	months := cm.LoyaltyRepo.Months(message.User.Name)
+	return fmt.Sprintf("%s, you have been subscribed for %d months!", message.User.DisplayName, months)
+}
+
 func (cm *ChatMonitor) NewMessage(message twitch.PrivateMessage) {
+	switch GetCommand(message) {
+	case "giftsub":
+		arg := GetArgument(0, message)
+		if arg == nil {
+			response := fmt.Sprintf("%s, you have given %d giftsubs and received %d giftsubs", message.User.DisplayName, 0, 0)
+			cm.Say(cm.channel, response)
+			return
+		}
+		response := fmt.Sprintf("thank you %s for the gift sub to %s", message.User.DisplayName, *arg)
+		cm.Say(cm.channel, response)
+	case "sub":
+		cm.Say(cm.channel, cm.Subscribe(message))
+	case "me":
+		cm.Say(cm.channel, cm.AboutMe(message))
+	}
 	fmt.Println(message.User.Name, ":", message.Message)
 }
 
@@ -91,4 +186,17 @@ func main() {
 	if err != nil {
 		log.Println("error monitoring:", err.Error())
 	}
+}
+
+func GetCommand(message twitch.PrivateMessage) string {
+	return strings.TrimPrefix(strings.ToLower(strings.Split(message.Message, " ")[0]), "!")
+}
+
+func GetArgument(n int, message twitch.PrivateMessage) *string {
+	parts := strings.Split(message.Message, " ")
+	if n+1 >= len(parts) {
+		return nil
+	}
+	res := strings.TrimPrefix(strings.ToLower(parts[n+1]), "@")
+	return &res
 }
