@@ -7,9 +7,9 @@ go build
 # Run
 You need the following environment variables...
 
-USER_OAUTH_TOKEN= the full string from https://twitchapps.com/tmi/
-USER_NAME=your bots name
-USER_CHANNEL=the channel to join
+USER_OAUTH_TOKEN= the full string from https://twitchapps.com/tmi/  
+USER_NAME=your bots name  
+USER_CHANNEL=the channel to join  
 
 Then just run ./twitch-loyalty-go and the bot will initialize itself and connect!
 
@@ -17,12 +17,8 @@ Then just run ./twitch-loyalty-go and the bot will initialize itself and connect
 
 The commands are:
 
-sub
-
-giftsub
-
-cheer
-
-me
-
-stats
+sub  
+giftsub  
+cheer  
+me  
+stats  
