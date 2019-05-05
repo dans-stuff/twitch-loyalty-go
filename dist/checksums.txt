@@ -1,0 +1,4 @@
+7d01fdbf7bcc253e4a9a60e7881e63ee0e4ed9f2197fa5bb571fc5aea80ef3a0  twitch-loyalty-go_v0.0.0-next_Darwin_i386.tar.gz
+4ad3d1c6711cd7e1109e3a515fede4ffbd34826f0cc9205b5db359749df438b6  twitch-loyalty-go_v0.0.0-next_Linux_x86_64.tar.gz
+1145c37a5d58d25433d7275d60c269dce00d036bf9ec1a9a35ae2140a3765153  twitch-loyalty-go_v0.0.0-next_Darwin_x86_64.tar.gz
+48b6a974414b074b4b1d41644dcc3a22b017e68a668235eb1c27117e04e1fe47  twitch-loyalty-go_v0.0.0-next_Linux_i386.tar.gz
