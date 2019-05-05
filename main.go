@@ -127,69 +127,87 @@ func (lt *LoyaltyTracker) ChannelInfo() (ci ChannelInfo) {
 
 func (lt *LoyaltyTracker) Months(user string) int {
 	row := lt.db.QueryRow("SELECT COUNT(*) FROM subs WHERE username = ?", user)
-	count := 0
+	var count sql.NullInt64
 	err := row.Scan(&count)
 	if err != nil {
 		log.Println(err.Error())
 		return 0
 	}
-	return count
+	if count.Valid {
+		return int(count.Int64)
+	}
+	return 0
 }
 
 func (lt *LoyaltyTracker) Cheers(user string) int {
 	row := lt.db.QueryRow("SELECT SUM(amount) FROM cheers WHERE username = ?", user)
-	count := 0
+	var count sql.NullInt64
 	err := row.Scan(&count)
 	if err != nil {
 		log.Println(err.Error())
 		return 0
 	}
-	return count
+	if count.Valid {
+		return int(count.Int64)
+	}
+	return 0
 }
 
 func (lt *LoyaltyTracker) TotalCheers() int {
 	row := lt.db.QueryRow("SELECT SUM(amount) FROM cheers")
-	count := 0
+	var count sql.NullInt64
 	err := row.Scan(&count)
 	if err != nil {
 		log.Println(err.Error())
 		return 0
 	}
-	return count
+	if count.Valid {
+		return int(count.Int64)
+	}
+	return 0
 }
 
 func (lt *LoyaltyTracker) TotalGifts() int {
 	row := lt.db.QueryRow("SELECT COUNT(*) FROM subs WHERE giftee IS NOT NULL")
-	count := 0
+	var count sql.NullInt64
 	err := row.Scan(&count)
 	if err != nil {
 		log.Println(err.Error())
 		return 0
 	}
-	return count
+	if count.Valid {
+		return int(count.Int64)
+	}
+	return 0
 }
 
 func (lt *LoyaltyTracker) ActiveSubs() int {
 	tNow := time.Now().Unix() - 60*60*24*30
 	row := lt.db.QueryRow("SELECT COUNT(*) FROM subs WHERE created_at > ?", tNow)
-	count := 0
+	var count sql.NullInt64
 	err := row.Scan(&count)
 	if err != nil {
 		log.Println(err.Error())
 		return 0
 	}
-	return count
+	if count.Valid {
+		return int(count.Int64)
+	}
+	return 0
 }
 
 func (lt *LoyaltyTracker) LastSub(user string) time.Time {
 	row := lt.db.QueryRow("SELECT created_at FROM subs WHERE username = ? ORDER BY created_at DESC", user)
-	tSub := 0
+	var tSub sql.NullInt64
 	err := row.Scan(&tSub)
 	if err != nil {
 		log.Println(err.Error())
 		return time.Now()
 	}
-	return time.Unix(int64(tSub), 0)
+	if tSub.Valid {
+		return time.Unix(tSub.Int64, 0)
+	}
+	return time.Time{}
 }
 
 func (lt *LoyaltyTracker) Giftee(user string) *string {
@@ -208,13 +226,16 @@ func (lt *LoyaltyTracker) Giftee(user string) *string {
 
 func (lt *LoyaltyTracker) GiftSubs(user string) int {
 	row := lt.db.QueryRow("SELECT COUNT(*) FROM subs WHERE giftee = ?", user)
-	count := 0
+	var count sql.NullInt64
 	err := row.Scan(&count)
 	if err != nil {
 		log.Println(err.Error())
 		return 0
 	}
-	return count
+	if count.Valid {
+		return int(count.Int64)
+	}
+	return 0
 }
 
 func (lt *LoyaltyTracker) Gift(user, from string) error {
