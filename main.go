@@ -91,10 +91,16 @@ func (lt *LoyaltyTracker) Subscribe(user string) error {
 	tSub := 0
 	if err := row.Scan(&tSub); err != nil {
 		if err != sql.ErrNoRows {
+			if err := tx.Rollback(); err != nil {
+				return err
+			}
 			return err
 		}
 	} else {
 		if tSub > tNow-60*60*24*30 {
+			if err := tx.Rollback(); err != nil {
+				return err
+			}
 			return fmt.Errorf("user is already subscribed")
 		}
 	}
@@ -103,6 +109,9 @@ func (lt *LoyaltyTracker) Subscribe(user string) error {
 		_, err := tx.Exec("INSERT INTO subs ( created_at, username, tier ) VALUES (?,?,?)",
 			tNow, user, 1)
 		if err != nil {
+			if err := tx.Rollback(); err != nil {
+				return err
+			}
 			return err
 		}
 	}
@@ -249,16 +258,25 @@ func (lt *LoyaltyTracker) Gift(user, from string) error {
 	tSub := 0
 	if err := row.Scan(&tSub); err != nil {
 		if err != sql.ErrNoRows {
+			if err := tx.Rollback(); err != nil {
+				return err
+			}
 			return err
 		}
 	}
 	if tSub > tNow-60*60*24*30 {
+		if err := tx.Rollback(); err != nil {
+			return err
+		}
 		return fmt.Errorf("user is already subscribed")
 	}
 	{
 		_, err := tx.Exec("INSERT INTO subs ( created_at, username, giftee, tier ) VALUES (?,?,?,?)",
 			tNow, user, from, 1)
 		if err != nil {
+			if err := tx.Rollback(); err != nil {
+				return err
+			}
 			return err
 		}
 	}
