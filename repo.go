@@ -148,9 +148,10 @@ func (lt *LoyaltyTracker) Months(user string) int {
 }
 
 func (lt *LoyaltyTracker) TopGifter() string {
-	row := lt.db.QueryRow("SELECT * FROM subs WHERE giftee IS NOT NULL GROUP BY giftee ORDER BY COUNT(*) DESC LIMIT 1")
+	row := lt.db.QueryRow("SELECT username, COUNT(*) FROM subs WHERE giftee IS NOT NULL GROUP BY giftee ORDER BY COUNT(*) DESC LIMIT 1")
 	var best sql.NullString
-	err := row.Scan(&best)
+	var bestCount sql.NullInt64
+	err := row.Scan(&best, &bestCount)
 	if err != nil {
 		log.Println(err.Error())
 		return ""
