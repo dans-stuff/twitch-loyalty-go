@@ -383,6 +383,9 @@ func (cm *ChatMonitor) Cheer(message twitch.PrivateMessage) string {
 	if amount < 0 {
 		return fmt.Sprintf("%s, stop trying to steal my bits! :(", message.User.DisplayName)
 	}
+	if amount > 1000000 {
+		return fmt.Sprintf("%s, I can't allow you to be so generous! GivePLZ", message.User.DisplayName)
+	}
 	if err := cm.LoyaltyRepo.Cheer(message.User.Name, amount); err != nil {
 		log.Println("err cheering:", err.Error())
 		return fmt.Sprintf("%s, your cheer failed because `%s`", message.User.DisplayName, err.Error())
