@@ -421,7 +421,7 @@ func (cm *ChatMonitor) CheckCheers(message twitch.PrivateMessage) string {
 		for _, prefix := range prefixes {
 			if strings.HasPrefix(p, prefix) {
 				amtStr := strings.TrimPrefix(p, prefix)
-				if amt, err := strconv.Atoi(amtStr); err != nil {
+				if amt, err := strconv.Atoi(amtStr); err == nil {
 					total += amt
 				}
 			}
