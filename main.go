@@ -28,6 +28,13 @@ const CREATE_SUBS_SQL = `
 	);
 `
 
+type UserInfo struct {
+	LastSub      time.Time
+	SubbedFrom   *string
+	MonthsSubbed int
+	GiftsGiven   int
+}
+
 type LoyaltyTracker struct {
 	db *sql.DB
 }
@@ -56,7 +63,6 @@ func NewLoyaltyTracker() *LoyaltyTracker {
 	lt.db = db
 	return lt
 }
-
 func (lt *LoyaltyTracker) Subscribe(user string) error {
 	tx, err := lt.db.Begin()
 	if err != nil {
@@ -84,6 +90,14 @@ func (lt *LoyaltyTracker) Subscribe(user string) error {
 	return tx.Commit()
 }
 
+func (lt *LoyaltyTracker) UserInfo(user string) (ui UserInfo) {
+	ui.MonthsSubbed = lt.Months(user)
+	ui.GiftsGiven = lt.GiftSubs(user)
+	ui.SubbedFrom = lt.Giftee(user)
+	ui.LastSub = lt.LastSub(user)
+	return ui
+}
+
 func (lt *LoyaltyTracker) Months(user string) int {
 	row := lt.db.QueryRow("SELECT COUNT(*) FROM subs WHERE username = ?", user)
 	count := 0
@@ -93,6 +107,31 @@ func (lt *LoyaltyTracker) Months(user string) int {
 		return 0
 	}
 	return count
+}
+
+func (lt *LoyaltyTracker) LastSub(user string) time.Time {
+	row := lt.db.QueryRow("SELECT created_at FROM subs WHERE username = ? ORDER BY created_at DESC", user)
+	tSub := 0
+	err := row.Scan(&tSub)
+	if err != nil {
+		log.Println(err.Error())
+		return time.Now()
+	}
+	return time.Unix(int64(tSub), 0)
+}
+
+func (lt *LoyaltyTracker) Giftee(user string) *string {
+	row := lt.db.QueryRow("SELECT giftee FROM subs WHERE username = ? ORDER BY created_at DESC", user)
+	var name sql.NullString
+	err := row.Scan(&name)
+	if err != nil {
+		log.Println(err.Error())
+		return nil
+	}
+	if name.Valid {
+		return &name.String
+	}
+	return nil
 }
 
 func (lt *LoyaltyTracker) GiftSubs(user string) int {
@@ -139,21 +178,39 @@ func (lt *LoyaltyTracker) Cheer(user string, amount int) error {
 
 type LoyaltyRepo interface {
 	Subscribe(user string) error
-	Months(user string) int
-	GiftSubs(user string) int
 	Gift(user string, from string) error
 	Cheer(user string, amount int) error
+	UserInfo(user string) UserInfo
 }
 
 type ChatMonitor struct {
 	LoyaltyRepo
 	*twitch.Client
 	channel string
+
+	messages chan string
 }
 
 func NewChatMonitor(lp LoyaltyRepo) *ChatMonitor {
 	cm := &ChatMonitor{LoyaltyRepo: lp}
+	cm.messages = make(chan string, 1000)
 	return cm
+}
+
+func (cm *ChatMonitor) SaySlowly() {
+	lastMessage := ""
+	for m := range cm.messages {
+		if lastMessage == m {
+			continue
+		}
+		lastMessage = m
+		cm.Client.Say(cm.channel, m)
+		time.Sleep(2 * time.Second)
+	}
+}
+
+func (cm *ChatMonitor) Say(s string) {
+	cm.messages <- s
 }
 
 func (cm *ChatMonitor) Monitor() error {
@@ -179,6 +236,7 @@ func (cm *ChatMonitor) Monitor() error {
 	cm.channel = channel
 	cm.Join(channel)
 	cm.OnPrivateMessage(cm.NewMessage)
+	go cm.SaySlowly()
 
 	return client.Connect()
 }
@@ -192,9 +250,26 @@ func (cm *ChatMonitor) Subscribe(message twitch.PrivateMessage) string {
 }
 
 func (cm *ChatMonitor) AboutMe(message twitch.PrivateMessage) string {
-	months := cm.LoyaltyRepo.Months(message.User.Name)
-	gifts := cm.LoyaltyRepo.GiftSubs(message.User.Name)
-	return fmt.Sprintf("%s, you have been subscribed for %d months, and given %d gift subs!", message.User.DisplayName, months, gifts)
+	info := cm.LoyaltyRepo.UserInfo(message.User.Name)
+	subbed := time.Since(info.LastSub) < 1*time.Hour*24*30
+	parts := make([]string, 0)
+	if subbed {
+		parts = append(parts, "are not currently subscribed")
+	} else {
+		parts = append(parts, fmt.Sprintf("have been subscribed for %d months, most recently at %s", info.MonthsSubbed, info.LastSub))
+	}
+
+	if info.GiftsGiven == 0 {
+		parts = append(parts, "have not given any gift subs")
+	} else {
+		parts = append(parts, fmt.Sprintf("have given %d gift subs", info.GiftsGiven))
+	}
+
+	if info.SubbedFrom != nil {
+		parts = append(parts, fmt.Sprintf("last received a gift sub from %s", *info.SubbedFrom))
+	}
+
+	return fmt.Sprintf("%s, you: %s!", message.User.DisplayName, strings.Join(parts, "; "))
 }
 
 func (cm *ChatMonitor) GiftSub(message twitch.PrivateMessage) string {
@@ -206,18 +281,18 @@ func (cm *ChatMonitor) GiftSub(message twitch.PrivateMessage) string {
 		log.Println("err giftsub:", err.Error())
 		return fmt.Sprintf("%s, your giftsub failed because `%s`", message.User.DisplayName, err.Error())
 	}
-	count := cm.LoyaltyRepo.GiftSubs(message.User.Name)
+	count := cm.LoyaltyRepo.UserInfo(message.User.Name).GiftsGiven
 	return fmt.Sprintf("Thank you %s for the gift sub to %s! You have given %d gift subs.", message.User.DisplayName, *arg, count)
 }
 
 func (cm *ChatMonitor) NewMessage(message twitch.PrivateMessage) {
 	switch GetCommand(message) {
 	case "giftsub":
-		cm.Say(cm.channel, cm.GiftSub(message))
+		cm.Say(cm.GiftSub(message))
 	case "sub":
-		cm.Say(cm.channel, cm.Subscribe(message))
+		cm.Say(cm.Subscribe(message))
 	case "me":
-		cm.Say(cm.channel, cm.AboutMe(message))
+		cm.Say(cm.AboutMe(message))
 	}
 	fmt.Println(message.User.Name, ":", message.Message)
 }
