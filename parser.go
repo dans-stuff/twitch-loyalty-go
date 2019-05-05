@@ -131,7 +131,7 @@ func (cm *ChatMonitor) GiftSub(message twitch.PrivateMessage) string {
 
 func (cm *ChatMonitor) Stats() string {
 	ci := cm.ChannelInfo()
-	return fmt.Sprintf("There are currently %d active subscribers! The community has given %d gift subs and cheered %d bits!", ci.ActiveSubs, ci.TotalGifts, ci.TotalCheers)
+	return fmt.Sprintf("There are currently %d active subscribers! The community has given %d gift subs and cheered %d bits, and the top gift subber is %s", ci.ActiveSubs, ci.TotalGifts, ci.TotalCheers, ci.TopGifter)
 }
 
 var prefixes = []string{"BleedPurple", "Cheer", "PogChamp", "ShowLove", "Pride", "HeyGuys", "FrankerZ",

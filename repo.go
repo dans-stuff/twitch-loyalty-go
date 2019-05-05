@@ -39,6 +39,7 @@ type ChannelInfo struct {
 	ActiveSubs  int
 	TotalGifts  int
 	TotalCheers int
+	TopGifter   string
 }
 
 func (c ChannelInfo) Treat() string {
@@ -128,6 +129,7 @@ func (lt *LoyaltyTracker) ChannelInfo() (ci ChannelInfo) {
 	ci.TotalCheers = lt.TotalCheers()
 	ci.TotalGifts = lt.TotalGifts()
 	ci.ActiveSubs = lt.ActiveSubs()
+	ci.TopGifter = lt.TopGifter()
 	return ci
 }
 
@@ -143,6 +145,20 @@ func (lt *LoyaltyTracker) Months(user string) int {
 		return int(count.Int64)
 	}
 	return 0
+}
+
+func (lt *LoyaltyTracker) TopGifter() string {
+	row := lt.db.QueryRow("SELECT * FROM subs WHERE giftee IS NOT NULL GROUP BY giftee ORDER BY COUNT(*) DESC LIMIT 1")
+	var best sql.NullString
+	err := row.Scan(&best)
+	if err != nil {
+		log.Println(err.Error())
+		return ""
+	}
+	if best.Valid {
+		return best.String
+	}
+	return ""
 }
 
 func (lt *LoyaltyTracker) Cheers(user string) int {
